@@ -1,7 +1,4 @@
-// "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=0&longitude=0"
-
-import { useEffect, useState } from "react";
-
+import React, { useEffect, useReducer } from "react";
 import styles from "./Form.module.css";
 import Button from "./Button";
 import { useNavigate } from "react-router-dom";
@@ -9,79 +6,100 @@ import BackButton from "./BackButton";
 import { useUrlPosition } from "../hooks/useUrlPosition";
 import Message from "./Message";
 import Spinner from "./Spinner";
-// Date Picker
 import ReactDatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { useCreateForm } from "../pages/useCreateForm";
 import { useUser } from "../pages/useUser";
 
-export function convertToEmoji(countryCode) {
-  const codePoints = countryCode
-    .toUpperCase()
-    .split("")
-    .map((char) => 127397 + char.charCodeAt());
-  return String.fromCodePoint(...codePoints);
-}
-
 const BASE_URL = "https://api.bigdatacloud.net/data/reverse-geocode-client";
 
+const initialState = {
+  isLoadingGeocoding: false,
+  cityName: "",
+  countryName: "",
+  date: new Date(),
+  notes: "",
+  countryCode: "",
+  geocodingError: "",
+};
+
+const formReducer = (state, action) => {
+  switch (action.type) {
+    case "SET_LOADING":
+      return { ...state, isLoadingGeocoding: action.payload };
+    case "SET_CITY_DATA":
+      return {
+        ...state,
+        cityName: action.payload.cityName,
+        countryName: action.payload.countryName,
+        countryCode: action.payload.countryCode,
+      };
+    case "SET_DATE":
+      return { ...state, date: action.payload };
+    case "SET_NOTES":
+      return { ...state, notes: action.payload };
+    case "SET_GEOCODING_ERROR":
+      return { ...state, geocodingError: action.payload };
+    case "RESET_STATE":
+      return initialState;
+    default:
+      return state;
+  }
+};
+
 function Form() {
+  const [state, dispatch] = useReducer(formReducer, initialState);
   const [lat, lng] = useUrlPosition();
-  // const { createCity, isLoading } = useCities();
   const navigate = useNavigate();
-
-  const [isLoadingGeocoding, setIsLoadingGeocoding] = useState(false);
-  const [cityName, setCityName] = useState("");
-  const [countryName, setCountryName] = useState("");
-  const [date, setDate] = useState(new Date());
-  const [notes, setNotes] = useState("");
-  const [countryCode, setCountryCode] = useState("");
-  const [geocodingError, setGeocodingError] = useState("");
-
   const { isCreating, createForm } = useCreateForm();
   const { user } = useUser();
-  // console.log("User -> ", user.id);
 
-  useEffect(
-    function () {
-      if (!lat && !lng) return;
-      async function fetchCityData() {
-        try {
-          setIsLoadingGeocoding(true);
-          setGeocodingError("");
-          const res = await fetch(
-            `${BASE_URL}?latitude=${lat}&longitude=${lng}`
+  useEffect(() => {
+    if (!lat && !lng) return;
+
+    async function fetchCityData() {
+      try {
+        dispatch({ type: "SET_LOADING", payload: true });
+        dispatch({ type: "SET_GEOCODING_ERROR", payload: "" });
+
+        const res = await fetch(`${BASE_URL}?latitude=${lat}&longitude=${lng}`);
+        const data = await res.json();
+
+        if (!data.countryCode) {
+          throw new Error(
+            "That doesn't seem to be a city. Click somewhere else 😉"
           );
-          const data = await res.json();
-          console.log(data);
-          if (!data.countryCode)
-            throw new Error(
-              "That doesn't seem to be a city Click somewhere else 😉"
-            );
-          setCityName(data.city || data.locality || "");
-          setCountryName(data.countryName);
-          setCountryCode(data.countryCode);
-        } catch (err) {
-          setGeocodingError(err.message);
-        } finally {
-          setIsLoadingGeocoding(false);
         }
-      }
-      fetchCityData();
-    },
-    [lat, lng]
-  );
 
-  async function handleSubmit(e) {
+        dispatch({
+          type: "SET_CITY_DATA",
+          payload: {
+            cityName: data.city || data.locality || "",
+            countryName: data.countryName,
+            countryCode: data.countryCode,
+          },
+        });
+      } catch (err) {
+        dispatch({ type: "SET_GEOCODING_ERROR", payload: err.message });
+      } finally {
+        dispatch({ type: "SET_LOADING", payload: false });
+      }
+    }
+
+    fetchCityData();
+  }, [lat, lng]);
+
+  const handleSubmit = (e) => {
     e.preventDefault();
-    if (!cityName || !date) return;
+
+    if (!state.cityName || !state.date) return;
 
     const newCity = {
-      cityName,
-      countryName,
-      countryCode,
-      date,
-      notes,
+      cityName: state.cityName,
+      countryName: state.countryName,
+      countryCode: state.countryCode,
+      date: state.date,
+      notes: state.notes,
       lat,
       lng,
       userId: user.id,
@@ -91,27 +109,20 @@ function Form() {
       { ...newCity },
       {
         onSuccess: (data) => {
-          // Created  data
           console.log(data);
-          setIsLoadingGeocoding(false);
-          setCityName("");
-          setCountryName("");
-          setDate(new Date());
-          setNotes("");
-          setCountryCode("");
-          setGeocodingError("");
+          dispatch({ type: "RESET_STATE" });
           navigate("/app/cities");
         },
       }
     );
-  }
+  };
 
-  if (isLoadingGeocoding) return <Spinner />;
+  if (state.isLoadingGeocoding) return <Spinner />;
 
   if (!lat && !lng)
     return <Message message="Start by clicking somewhere on the map" />;
 
-  if (geocodingError) return <Message message={geocodingError} />;
+  if (state.geocodingError) return <Message message={state.geocodingError} />;
 
   return (
     <form
@@ -122,30 +133,34 @@ function Form() {
         <label htmlFor="cityName">City name</label>
         <input
           id="cityName"
-          onChange={(e) => setCityName(e.target.value)}
-          value={cityName}
+          onChange={(e) =>
+            dispatch({ type: "SET_CITY_DATA", payload: e.target.value })
+          }
+          value={state.cityName}
           disabled={isCreating}
         />
-        <span className={styles.flag}>{countryCode}</span>
+        <span className={styles.flag}>{state.countryCode}</span>
       </div>
 
       <div className={styles.row}>
-        <label htmlFor="date">When did you go to {cityName}?</label>
+        <label htmlFor="date">When did you go to {state.cityName}?</label>
         <ReactDatePicker
           id="date"
-          onChange={(date) => setDate(date)}
-          selected={date}
+          onChange={(date) => dispatch({ type: "SET_DATE", payload: date })}
+          selected={state.date}
           dateFormat="dd/MM/yyyy"
           disabled={isCreating}
         />
       </div>
 
       <div className={styles.row}>
-        <label htmlFor="notes">Notes about your trip to {cityName}</label>
+        <label htmlFor="notes">Notes about your trip to {state.cityName}</label>
         <textarea
           id="notes"
-          onChange={(e) => setNotes(e.target.value)}
-          value={notes}
+          onChange={(e) =>
+            dispatch({ type: "SET_NOTES", payload: e.target.value })
+          }
+          value={state.notes}
           disabled={isCreating}
         />
       </div>
