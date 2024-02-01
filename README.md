@@ -15,4 +15,4 @@
 3. User can take up the notes of trip
 4. Interactive interface which can be sorted according to country
 
-## Website link -> [World Wise website](https://world-wise-mauve.vercel.app/)
+## Website link -> [World Wise](https://world-wise-mauve.vercel.app/)
